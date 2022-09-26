@@ -1,6 +1,6 @@
 <template>
     <div>
-        <form>
+        <div v-if="!isDataUploaded">
             <div class="center-me go-under">
                 <select v-model="selected" class="default-alignment">
                     <option v-for="job in options" v-bind:value="{val: job.value, nam: job.name}">
@@ -17,7 +17,26 @@
                     Senden
                 </button>
             </div>
-        </form>
+        </div>
+        <div v-if="isDataUploaded">
+            <div>
+                Sätze:
+                <ul>
+                    <li v-for="point in berichtData.points">
+                        <input type="text" v-model="point.lfd" />
+                        {{ point.value }}
+                    </li>
+                </ul>
+            </div>
+            <div>
+                <p style="white-space: pre-wrap;">
+                    {{ berichtData.lfd_data }}
+                </p>
+            </div>
+            <div>
+                <button @click="sendPoints">Senden</button>
+            </div>
+        </div>
     </div>
 </template>
 
@@ -26,6 +45,14 @@ import { ref } from 'vue';
 
 const selected = ref({})
 const files = ref([])
+const isDataUploaded = ref(false)
+
+const berichtData = ref({
+    lfd_data: {},
+    points: [],
+    fileName: ""
+})
+
 const options = ref([
     {"name": "Systemintegration", "value": "systemIntegration"},
     {"name": "Anwendungsentwicklung", "value": "coding"},
@@ -39,19 +66,73 @@ function uploadFile(e) {
     if (files.value.length > 0)
         files.value = []
     files.value.push(uFiles[0])
+
     console.log(files.value)
 }
 
-function sendPost() {
-    console.log(selected.value.val)
+function sendPoints() {
     const requestOptions = {
-        method: "POST",
+        method: "POST", 
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job: selected.value.val })
+        body: JSON.stringify({
+            "data": berichtData.value.points, 
+            "fileName": berichtData.value.fileName
+        })
+    };
+
+    fetch("http://localhost:5000/api/v1/append", requestOptions)
+        .then(res => res.json())
+        .then(res => {
+            const link = document.createElement("a")
+            link.href = "http://localhost:5000/api/v1/dl/" + res["name"]
+            link.download = "bheft.docx"
+            link.click()
+        })
+}
+
+async function fileToBase64(file) {
+    
+    function getBase64(file) {
+        const reader = new FileReader()
+        return new Promise(resolve => {
+            reader.onload = ev => {
+                const res = 
+                    ev.target.result
+                    .replace('data:', '')
+                    .replace(/^.+,/, '') 
+                resolve(res)
+            }
+            reader.readAsDataURL(file)
+        })
+    }
+    
+    const promises = files.value.map(el => getBase64(el))
+
+    return await Promise.all(promises)
+}
+
+async function sendPost() {
+    const requestOptions = {
+        method: "POST", 
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            "job": selected.value.val,
+            "files": await fileToBase64()
+        })
     };
     fetch("http://localhost:5000/api/v1/init", requestOptions)
         .then(res => res.json())
-        .then(res => console.log(res))
+        .then(res => {
+            if (res["status"] === 200) {
+                berichtData.value.points = res["points"]
+                berichtData.value.lfd_data = res["data"]
+                berichtData.value.fileName = res["file_name"]
+                isDataUploaded.value = true
+            }
+            else {
+                console.log(res)
+            }
+        })
 }
 
 </script>
